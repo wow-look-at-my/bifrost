@@ -20,6 +20,7 @@ func TestListModelsByKeyResponseShapes(t *testing.T) {
 		wantID      string
 		wantOwnedBy string
 		wantContext int
+		wantMaxOut  int
 	}{
 		{
 			name:        "OpenAI envelope",
@@ -27,6 +28,14 @@ func TestListModelsByKeyResponseShapes(t *testing.T) {
 			wantID:      "test/gpt-5",
 			wantOwnedBy: "openai",
 			wantContext: 128000,
+		},
+		{
+			name:        "Synthetic.new envelope",
+			body:        `{"data":[{"id":"hf:deepseek-ai/DeepSeek-V4.1-Flash","context_length":524288,"max_output_length":65536}]}`,
+			wantID:      "test/hf:deepseek-ai/DeepSeek-V4.1-Flash",
+			wantOwnedBy: "",
+			wantContext: 524288,
+			wantMaxOut:  65536,
 		},
 		{
 			name:        "Together array",
@@ -63,6 +72,9 @@ func TestListModelsByKeyResponseShapes(t *testing.T) {
 			require.Equal(t, test.wantID, response.Data[0].ID)
 			require.Equal(t, schemas.Ptr(test.wantOwnedBy), response.Data[0].OwnedBy)
 			require.Equal(t, schemas.Ptr(test.wantContext), response.Data[0].ContextLength)
+			if test.wantMaxOut != 0 {
+				require.Equal(t, schemas.Ptr(test.wantMaxOut), response.Data[0].MaxOutputTokens)
+			}
 		})
 	}
 }
