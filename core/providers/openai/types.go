@@ -1641,10 +1641,10 @@ type OpenAIModel struct {
 	Active        *bool `json:"active,omitempty"`
 	ContextWindow *int  `json:"context_window,omitempty"`
 
-	// ContextLength is the field name used by Together, Synthetic and other OpenAI-compatible providers
+	// ContextLength is the field name used by Together, Synthetic.new and other OpenAI-compatible providers
 	ContextLength *int `json:"context_length,omitempty"`
 
-	// MaxOutputLength is the output token cap reported by Synthetic
+	// MaxOutputLength is the output token cap reported by Synthetic.new
 	MaxOutputLength *int `json:"max_output_length,omitempty"`
 }
 

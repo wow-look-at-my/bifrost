@@ -30,7 +30,7 @@ func TestListModelsByKeyResponseShapes(t *testing.T) {
 			wantContext: 128000,
 		},
 		{
-			name:        "Synthetic envelope",
+			name:        "Synthetic.new envelope",
 			body:        `{"data":[{"id":"hf:deepseek-ai/DeepSeek-V4.1-Flash","context_length":524288,"max_output_length":65536}]}`,
 			wantID:      "test/hf:deepseek-ai/DeepSeek-V4.1-Flash",
 			wantOwnedBy: "",
