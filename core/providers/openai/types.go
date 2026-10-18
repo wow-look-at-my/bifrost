@@ -1640,6 +1640,20 @@ type OpenAIModel struct {
 	// GROQ specific fields
 	Active        *bool `json:"active,omitempty"`
 	ContextWindow *int  `json:"context_window,omitempty"`
+
+	// ContextLength is the field name used by Together, Synthetic and other OpenAI-compatible providers
+	ContextLength *int `json:"context_length,omitempty"`
+
+	// MaxOutputLength is the output token cap reported by Synthetic
+	MaxOutputLength *int `json:"max_output_length,omitempty"`
+}
+
+// contextSize returns the context window under whichever field name the provider used.
+func (model *OpenAIModel) contextSize() *int {
+	if model.ContextWindow != nil {
+		return model.ContextWindow
+	}
+	return model.ContextLength
 }
 
 // OpenAIListModelsResponse represents an OpenAI list models response
@@ -1659,8 +1673,7 @@ func (response *OpenAIListModelsResponse) UnmarshalJSON(data []byte) error {
 
 	var models []struct {
 		OpenAIModel
-		Organization  string `json:"organization"`
-		ContextLength *int   `json:"context_length,omitempty"`
+		Organization string `json:"organization"`
 	}
 	if err := sonic.Unmarshal(trimmed, &models); err != nil {
 		return err
@@ -1671,9 +1684,6 @@ func (response *OpenAIListModelsResponse) UnmarshalJSON(data []byte) error {
 		response.Data[i] = model.OpenAIModel
 		if response.Data[i].OwnedBy == "" {
 			response.Data[i].OwnedBy = model.Organization
-		}
-		if response.Data[i].ContextWindow == nil {
-			response.Data[i].ContextWindow = model.ContextLength
 		}
 	}
 	return nil
