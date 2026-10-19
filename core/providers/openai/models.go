@@ -34,10 +34,11 @@ func (response *OpenAIListModelsResponse) ToBifrostListModelsResponse(providerKe
 	for _, model := range response.Data {
 		for _, result := range pipeline.FilterModel(model.ID) {
 			entry := schemas.Model{
-				ID:            string(providerKey) + "/" + result.ResolvedID,
-				Created:       model.Created,
-				OwnedBy:       schemas.Ptr(model.OwnedBy),
-				ContextLength: model.ContextWindow,
+				ID:              string(providerKey) + "/" + result.ResolvedID,
+				Created:         model.Created,
+				OwnedBy:         schemas.Ptr(model.OwnedBy),
+				ContextLength:   model.contextSize(),
+				MaxOutputTokens: model.MaxOutputLength,
 			}
 			if result.AliasValue != "" {
 				entry.Alias = schemas.Ptr(result.AliasValue)
@@ -61,11 +62,12 @@ func (model *OpenAIModel) ToBifrostModelRetrieveResponse(providerKey schemas.Mod
 
 	return &schemas.BifrostModelRetrieveResponse{
 		Model: schemas.Model{
-			ID:            string(providerKey) + "/" + model.ID,
-			Created:       model.Created,
-			OwnedBy:       schemas.Ptr(model.OwnedBy),
-			ContextLength: model.ContextWindow,
-			ShutdownDate:  model.ShutdownDate,
+			ID:              string(providerKey) + "/" + model.ID,
+			Created:         model.Created,
+			OwnedBy:         schemas.Ptr(model.OwnedBy),
+			ContextLength:   model.contextSize(),
+			MaxOutputTokens: model.MaxOutputLength,
+			ShutdownDate:    model.ShutdownDate,
 		},
 	}
 }
