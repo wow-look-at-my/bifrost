@@ -429,6 +429,79 @@ func TestToOpenAIResponsesRequest_ReasoningContentBlocksDropped(t *testing.T) {
 	})
 }
 
+// OpenRouter's Responses API returns a DeepSeek turn's thinking as a reasoning
+// item with reasoning_text content, an empty summary, and no
+// encrypted_content. OpenRouter's Responses API reads it back from content on
+// replay. Dropping the item deletes the model's thinking from every tool-loop
+// turn.
+func TestToOpenAIResponsesRequest_OpenRouterKeepsReasoningContentBlocks(t *testing.T) {
+	item := func() schemas.ResponsesMessage {
+		return schemas.ResponsesMessage{
+			ID:   schemas.Ptr("rs_tmp_1"),
+			Type: schemas.Ptr(schemas.ResponsesMessageTypeReasoning),
+			ResponsesReasoning: &schemas.ResponsesReasoning{
+				Summary: []schemas.ResponsesReasoningSummary{},
+			},
+			Content: &schemas.ResponsesMessageContent{
+				ContentBlocks: []schemas.ResponsesMessageContentBlock{{
+					Type: schemas.ResponsesOutputMessageContentTypeReasoning,
+					Text: schemas.Ptr("I will read the file to find the value."),
+				}},
+			},
+		}
+	}
+	convert := func(provider schemas.ModelProvider, model string) *OpenAIResponsesRequest {
+		return ToOpenAIResponsesRequest(nil, &schemas.BifrostResponsesRequest{
+			Provider: provider,
+			Model:    model,
+			Input:    []schemas.ResponsesMessage{item()},
+		})
+	}
+
+	for _, model := range []string{"deepseek/deepseek-v4.1-flash-1017", "qwen/qwen3.8-max-0902", "z-ai/glm-5.3"} {
+		t.Run("openrouter "+model, func(t *testing.T) {
+			result := convert(schemas.OpenRouter, model)
+			if result == nil || len(result.Input.OpenAIResponsesRequestInputArray) != 1 {
+				t.Fatalf("expected the reasoning item to be replayed, got %#v", result)
+			}
+			c := result.Input.OpenAIResponsesRequestInputArray[0].Content
+			if c == nil || len(c.ContentBlocks) != 1 || c.ContentBlocks[0].Text == nil ||
+				*c.ContentBlocks[0].Text != "I will read the file to find the value." {
+				t.Fatalf("expected the reasoning_text block to be replayed, got %#v", c)
+			}
+			out, err := json.Marshal(result)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if !strings.Contains(string(out), "reasoning_text") {
+				t.Errorf("the replayed thinking never reached the wire: %s", string(out))
+			}
+		})
+	}
+
+	for _, model := range []string{"openai/gpt-5.5", "openai/gpt-4o", "gpt-5.5", "o3"} {
+		t.Run("openrouter keeps the OpenAI rule for "+model, func(t *testing.T) {
+			result := convert(schemas.OpenRouter, model)
+			if result == nil {
+				t.Fatal("expected a request")
+			}
+			if len(result.Input.OpenAIResponsesRequestInputArray) != 0 {
+				t.Errorf("expected the content-only reasoning item to be skipped for an OpenAI model, got %#v", result.Input.OpenAIResponsesRequestInputArray)
+			}
+		})
+	}
+
+	t.Run("other providers keep the OpenAI rule", func(t *testing.T) {
+		result := convert(schemas.OpenAI, "deepseek/deepseek-v4.1-flash-1017")
+		if result == nil {
+			t.Fatal("expected a request")
+		}
+		if len(result.Input.OpenAIResponsesRequestInputArray) != 0 {
+			t.Errorf("expected the content-only reasoning item to be skipped, got %#v", result.Input.OpenAIResponsesRequestInputArray)
+		}
+	})
+}
+
 func TestToOpenAIResponsesRequest_NormalizesReasoningEffort(t *testing.T) {
 	// Register the custom "deepseek" provider so ParseModelString strips its prefix.
 	schemas.RegisterKnownProvider(schemas.ModelProvider("deepseek"))
