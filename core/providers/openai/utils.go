@@ -22,6 +22,24 @@ func defaultSupportsReasoningContentBlocks(model string) bool {
 	return strings.Contains(strings.ToLower(model), "gpt-oss")
 }
 
+// defaultReplaysReasoningContentBlocks: OpenRouter's Responses API feeds
+// replayed reasoning_text blocks to models outside the OpenAI family
+// (DeepSeek, Qwen, GLM, Kimi) and ignores a summary-only item for them.
+// Those blocks are kept there.
+func defaultReplaysReasoningContentBlocks(provider schemas.ModelProvider, model string) bool {
+	if defaultSupportsReasoningContentBlocks(model) {
+		return true
+	}
+	if provider != schemas.OpenRouter {
+		return false
+	}
+	lower := strings.ToLower(model)
+	if strings.HasPrefix(lower, "openai/") || strings.HasPrefix(lower, "gpt-") {
+		return false
+	}
+	return !IsOpenAIReasoningModel(model)
+}
+
 // IsOpenAIReasoningModel matches OpenAI-family models that accept
 // reasoning.effort: the o1/o3/o4 series, GPT-5.x, GPT-6.x, and gpt-oss. Broader
 // than isOSeriesModel, which covers the o-series alone.
