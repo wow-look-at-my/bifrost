@@ -1936,11 +1936,10 @@ func (m *AuthMiddleware) middleware(shouldSkip func(*configstore.AuthConfig, str
 				// checked at all" so handlers gating especially dangerous capabilities
 				// (e.g. native plugin/subprocess loading) can require real authentication
 				// even while the rest of the API is intentionally left open.
-				// A request the OSS setup-lock gate already authenticated with the
-				// setup token did pass a credential check, so it is not a bypass.
-				if setupAuthed, _ := ctx.UserValue(schemas.BifrostContextKeySetupTokenAuthenticated).(bool); !setupAuthed {
-					ctx.SetUserValue(schemas.BifrostContextKeyAuthBypassed, true)
-				}
+				// Local patch: dashboard auth is intentionally off (access is enforced
+				// upstream by Cloudflare Zero Trust), so do not set
+				// BifrostContextKeyAuthBypassed here. That marker gates endpoint/URL,
+				// plugin and MCP changes behind a second, redundant admin login.
 				next(ctx)
 				return
 			}
