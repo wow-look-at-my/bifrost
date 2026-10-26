@@ -201,6 +201,8 @@ func ToOpenAIChatRequest(ctx *schemas.BifrostContext, bifrostReq *schemas.Bifros
 			openaiReq.MaxTokens = openaiReq.MaxCompletionTokens
 			openaiReq.MaxCompletionTokens = nil
 		}
+		// Ollama reads replayed thinking from "reasoning" and ignores reasoning_content.
+		openaiReq.renameAssistantReasoningToAlias()
 		return openaiReq
 	case schemas.Vertex:
 		openaiReq.filterOpenAISpecificParameters(caps)
