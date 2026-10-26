@@ -44,6 +44,11 @@ func ToOpenAIChatRequest(ctx *schemas.BifrostContext, bifrostReq *schemas.Bifros
 		Messages: ConvertBifrostMessagesToOpenAIMessages(bifrostReq.Input),
 		Provider: bifrostReq.Provider,
 	}
+	// OpenRouter reads replayed encrypted reasoning, Claude signatures and
+	// Gemini thought signatures only from reasoning_details.
+	if schemas.ResolveBaseProvider(ctx, bifrostReq.Provider) == schemas.OpenRouter {
+		openaiReq.forwardReasoningDetails(bifrostReq.Input)
+	}
 
 	// Canonical model for capability gating only; wire model (openaiReq.Model) is untouched.
 	capModel := schemas.ResolveCanonicalModel(ctx, bifrostReq.Model)
@@ -515,6 +520,18 @@ func jsonSchemaInstruction(rf *schemas.ChatResponseFormat) string {
 	sb.WriteString("\n\nJSON Schema:\n")
 	sb.Write(schema)
 	return sb.String()
+}
+
+// forwardReasoningDetails copies each assistant message's reasoning_details from input, which
+// ConvertBifrostMessagesToOpenAIMessages maps one to one onto req.Messages.
+func (req *OpenAIChatRequest) forwardReasoningDetails(input []schemas.ChatMessage) {
+	for i := range req.Messages {
+		assistantMessage := req.Messages[i].OpenAIChatAssistantMessage
+		if assistantMessage == nil || i >= len(input) || input[i].ChatAssistantMessage == nil {
+			continue
+		}
+		assistantMessage.ReasoningDetails = input[i].ChatAssistantMessage.ReasoningDetails
+	}
 }
 
 // renameAssistantReasoningToAlias moves replayed assistant reasoning from
