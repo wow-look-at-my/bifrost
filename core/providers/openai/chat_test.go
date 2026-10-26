@@ -1107,8 +1107,69 @@ func TestToOpenAIChatRequest_MovesAssistantReasoningToAliasForGroq(t *testing.T)
 	}{
 		{name: "groq", provider: schemas.Groq, model: "qwen/qwen3.8-27b"},
 		{name: "cerebras", provider: schemas.Cerebras, model: "gpt-oss-120b"},
+		// Ollama ignores reasoning_content, so the replayed thinking never reached the model.
+		{name: "ollama", provider: schemas.Ollama, model: "deepseek-v4.1:cloud"},
 	} {
 		t.Run(tt.name, func(t *testing.T) { assertMovesAssistantReasoningToAlias(t, tt.provider, tt.model) })
+	}
+}
+
+// The Ollama provider answers a Responses request through chat completions. A
+// tool-loop turn's reasoning item must reach Ollama under "reasoning".
+func TestToOpenAIChatRequest_OllamaResponsesFallbackReplaysReasoning(t *testing.T) {
+	ctx, cancel := schemas.NewBifrostContextWithCancel(nil)
+	defer cancel()
+
+	thinking := "I need to read the file first."
+	responsesReq := &schemas.BifrostResponsesRequest{
+		Provider: schemas.Ollama,
+		Model:    "deepseek-v4.1:cloud",
+		Input: []schemas.ResponsesMessage{
+			{Role: schemas.Ptr(schemas.ResponsesInputMessageRoleUser), Content: &schemas.ResponsesMessageContent{ContentStr: schemas.Ptr("what is in a.txt?")}},
+			{
+				Type: schemas.Ptr(schemas.ResponsesMessageTypeReasoning),
+				Role: schemas.Ptr(schemas.ResponsesInputMessageRoleAssistant),
+				Content: &schemas.ResponsesMessageContent{ContentBlocks: []schemas.ResponsesMessageContentBlock{
+					{Type: schemas.ResponsesOutputMessageContentTypeReasoning, Text: &thinking},
+				}},
+			},
+			{
+				Type: schemas.Ptr(schemas.ResponsesMessageTypeFunctionCall),
+				Role: schemas.Ptr(schemas.ResponsesInputMessageRoleAssistant),
+				ResponsesToolMessage: &schemas.ResponsesToolMessage{
+					CallID: schemas.Ptr("call_1"), Name: schemas.Ptr("read_file"), Arguments: schemas.Ptr(`{"path":"a.txt"}`),
+				},
+			},
+			{
+				Type: schemas.Ptr(schemas.ResponsesMessageTypeFunctionCallOutput),
+				ResponsesToolMessage: &schemas.ResponsesToolMessage{
+					CallID: schemas.Ptr("call_1"),
+					Output: &schemas.ResponsesToolMessageOutputStruct{ResponsesToolCallOutputStr: schemas.Ptr("hello")},
+				},
+			},
+		},
+	}
+
+	result := ToOpenAIChatRequest(ctx, responsesReq.ToChatRequest())
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	var found bool
+	for _, m := range result.Messages {
+		a := m.OpenAIChatAssistantMessage
+		if a == nil || len(a.ToolCalls) == 0 {
+			continue
+		}
+		found = true
+		if a.ReasoningAlias == nil || *a.ReasoningAlias != thinking {
+			t.Fatalf("expected the tool-call turn to carry reasoning %q, got %#v", thinking, a.ReasoningAlias)
+		}
+		if a.Reasoning != nil {
+			t.Fatalf("expected no reasoning_content for Ollama, got %#v", *a.Reasoning)
+		}
+	}
+	if !found {
+		t.Fatalf("expected an assistant tool-call message, got %#v", result.Messages)
 	}
 }
 
@@ -2212,6 +2273,49 @@ func TestConvertOpenAIMessagesToBifrostMessages_NormalizesReasoningSpellings(t *
 // TestToOpenAIChatRequest_DoesNotEmitInboundReasoningAliases pins the inbound-only contract
 // on OpenAIChatAssistantMessage: the "reasoning" and "reasoning_details" aliases exist to
 // parse requests and must never appear on the outbound wire for any provider.
+// client replays OpenRouter's reasoning_details verbatim. An encrypted block and a signed one
+// are the only form of that reasoning OpenRouter can hand back to the model.
+func TestToOpenAIChatRequest_OpenRouterReplaysReasoningDetails(t *testing.T) {
+	ctx, cancel := schemas.NewBifrostContextWithCancel(nil)
+	defer cancel()
+
+	text, sig, enc, id := "check the file", "sig_1", "gAAAA-opaque", "rd_1"
+	details := []schemas.ChatReasoningDetails{
+		{Index: 0, Type: schemas.BifrostReasoningDetailsTypeText, Text: &text, Signature: &sig},
+		{Index: 1, Type: schemas.BifrostReasoningDetailsTypeEncrypted, Data: &enc, ID: &id},
+	}
+	toolCallID, toolName := "call_1", "read_file"
+	bifrostReq := &schemas.BifrostChatRequest{
+		Provider: schemas.OpenRouter,
+		Model:    "google/gemini-3.5-pro",
+		Input: []schemas.ChatMessage{
+			{Role: schemas.ChatMessageRoleUser, Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr("read a")}},
+			{
+				Role: schemas.ChatMessageRoleAssistant,
+				ChatAssistantMessage: &schemas.ChatAssistantMessage{
+					Reasoning:        &text,
+					ReasoningDetails: details,
+					ToolCalls: []schemas.ChatAssistantMessageToolCall{{
+						ID:       &toolCallID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{Name: &toolName, Arguments: `{}`},
+					}},
+				},
+			},
+		},
+	}
+
+	wireBody, err := sonic.Marshal(ToOpenAIChatRequest(ctx, bifrostReq))
+	require.NoError(t, err)
+	var body struct {
+		Messages []struct {
+			ReasoningDetails []schemas.ChatReasoningDetails `json:"reasoning_details"`
+		} `json:"messages"`
+	}
+	require.NoError(t, sonic.Unmarshal(wireBody, &body))
+	require.Len(t, body.Messages, 2)
+	require.Equal(t, details, body.Messages[1].ReasoningDetails, "reasoning_details must reach OpenRouter unchanged")
+}
+
 func TestToOpenAIChatRequest_DoesNotEmitInboundReasoningAliases(t *testing.T) {
 	ctx, cancel := schemas.NewBifrostContextWithCancel(nil)
 	defer cancel()
